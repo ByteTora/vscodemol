@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+    <!-- 背景圆形 -->
+    <circle cx="64" cy="64" r="60" fill="#2d2d2d"/>
+    
+    <!-- 分子结构 - 苯环 -->
+    <g transform="translate(64 64) scale(0.8)">
+        <!-- 六边形骨架 -->
+        <path d="M 0,-40 L 34.64,-20 L 34.64,20 L 0,40 L -34.64,20 L -34.64,-20 Z" 
+              fill="none" 
+              stroke="#3498db" 
+              stroke-width="6"
+              stroke-linejoin="round"/>
+        
+        <!-- 双键 -->
+        <path d="M 0,-40 L 34.64,-20" stroke="#e74c3c" stroke-width="8" stroke-linecap="round"/>
+        <path d="M 34.64,20 L 0,40" stroke="#e74c3c" stroke-width="8" stroke-linecap="round"/>
+        <path d="M -34.64,-20 L -34.64,20" stroke="#e74c3c" stroke-width="8" stroke-linecap="round"/>
+        
+        <!-- 原子标签 -->
+        <circle cx="0" cy="-40" r="8" fill="#3498db"/>
+        <circle cx="34.64" cy="-20" r="8" fill="#e74c3c"/>
+        <circle cx="34.64" cy="20" r="8" fill="#3498db"/>
+        <circle cx="0" cy="40" r="8" fill="#e74c3c"/>
+        <circle cx="-34.64" cy="20" r="8" fill="#3498db"/>
+        <circle cx="-34.64" cy="-20" r="8" fill="#e74c3c"/>
+    </g>
+</svg> 

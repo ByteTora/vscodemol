@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' vscode-resource: vscode-webview: https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: https://unpkg.com;">
+    <title>Molecule Viewer (2D)</title>
+    <script src="https://unpkg.com/smiles-drawer@2.0.1/dist/smiles-drawer.min.js"></script>
+    <script>
+        const vscode = acquireVsCodeApi();
+        function debugLog(message) {
+            console.log('[Debug]', message);
+            vscode.postMessage({ type: 'debug', message: message });
+        }
+        window.onerror = function(msg, url, line, col, error) {
+            debugLog(`Error: ${msg}\nURL: ${url}\nLine: ${line}\nColumn: ${col}\nError: ${error}`);
+            return false;
+        };
+    </script>
+    <style>
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden;
+            background: white;
+        }
+        #viewer { 
+            width: 100%; 
+            height: 100%; 
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: white;
+        }
+        #molViewer {
+            display: none;
+        }
+        #molCanvas {
+            width: 800px;
+            height: 600px;
+            background-color: white;
+        }
+        #status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px;
+            z-index: 1000;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewer">
+        <svg id="molViewer"></svg>
+        <canvas id="molCanvas" width="800" height="600"></canvas>
+    </div>
+    <div id="status">等待初始化...</div>
+
+    <script>
+        // 初始化 SmilesDrawer
+        let smilesDrawer = new SmilesDrawer.Drawer({
+            width: 800,
+            height: 600,
+            bondThickness: 1.4,
+            fontSizeLarge: 10,
+            fontSizeSmall: 8,
+            padding: 50,
+            atomVisualization: 'default',
+            bondLength: 30,
+            debug: false,
+            atomColoring: true,
+            width: 800,
+            height: 600,
+            themes: {
+                light: {
+                    C: '#222',
+                    O: '#e74c3c',
+                    N: '#3498db',
+                    F: '#27ae60',
+                    CL: '#16a085',
+                    BR: '#d35400',
+                    I: '#8e44ad',
+                    P: '#d35400',
+                    S: '#f1c40f',
+                    B: '#e67e22',
+                    BACKGROUND: '#ffffff'
+                }
+            }
+        });
+
+        function log(message) {
+            console.log('[Viewer]', message);
+            const status = document.getElementById('status');
+            if (status) {
+                status.textContent = message;
+            }
+            debugLog(message);
+        }
+
+        function parseMolfile(molfileContent) {
+            try {
+                // 按行分割，保留所有行（包括空行）
+                const lines = molfileContent.split('\n')
+                    .map(line => line.trim());
+                
+                log('开始解析MOL文件...');
+                log(`总行数: ${lines.length}`);
+
+                // 查找计数行（跳过标题和注释行）
+                let countLineIndex = -1;
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].includes('V2000')) {
+                        countLineIndex = i;
+                        break;
+                    }
+                }
+
+                if (countLineIndex === -1) {
+                    throw new Error('找不到V2000格式标记行');
+                }
+
+                log(`找到计数行，索引: ${countLineIndex}`);
+                const countLine = lines[countLineIndex];
+
+                // 从计数行提取原子数和键数
+                const matches = countLine.match(/^\s*(\d+)\s+(\d+)/);
+                if (!matches) {
+                    throw new Error('计数行格式不正确');
+                }
+
+                const atomCount = parseInt(matches[1], 10);
+                const bondCount = parseInt(matches[2], 10);
+
+                log(`解析到的原子数: ${atomCount}, 键数: ${bondCount}`);
+
+                if (isNaN(atomCount) || isNaN(bondCount)) {
+                    throw new Error(`无法解析原子数(${matches[1]})或键数(${matches[2]})`);
+                }
+
+                // 从计数行后面开始解析原子
+                const atoms = [];
+                for (let i = 0; i < atomCount; i++) {
+                    const lineIndex = countLineIndex + 1 + i;
+                    if (lineIndex >= lines.length) {
+                        throw new Error(`文件不完整：缺少原子数据（需要${atomCount}个原子，但只有${lines.length - countLineIndex - 1}行原子数据）`);
+                    }
+
+                    const line = lines[lineIndex];
+                    log(`解析原子行 ${i + 1}: "${line}"`);
+
+                    // 使用正则表达式匹配坐标和原子符号
+                    const atomMatch = line.match(/^\s*([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+(\w+)/);
+                    if (!atomMatch) {
+                        log(`警告：无法解析原子行: "${line}"`);
+                        continue;
+                    }
+
+                    const x = parseFloat(atomMatch[1]);
+                    const y = parseFloat(atomMatch[2]);
+                    const symbol = atomMatch[4];
+
+                    if (isNaN(x) || isNaN(y)) {
+                        log(`警告：原子坐标无效: x=${atomMatch[1]}, y=${atomMatch[2]}`);
+                        continue;
+                    }
+
+                    log(`成功解析原子: x=${x}, y=${y}, symbol=${symbol}`);
+                    atoms.push({ x, y, symbol });
+                }
+
+                // 解析键
+                const bonds = [];
+                const bondStart = countLineIndex + 1 + atomCount;
+                for (let i = 0; i < bondCount; i++) {
+                    const lineIndex = bondStart + i;
+                    if (lineIndex >= lines.length) {
+                        throw new Error(`文件不完整：缺少键数据（需要${bondCount}个键，但数据不足）`);
+                    }
+
+                    const line = lines[lineIndex];
+                    log(`解析键行 ${i + 1}: "${line}"`);
+
+                    // 使用正则表达式匹配键的信息
+                    const bondMatch = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)/);
+                    if (!bondMatch) {
+                        log(`警告：无法解析键行: "${line}"`);
+                        continue;
+                    }
+
+                    const from = parseInt(bondMatch[1], 10) - 1;
+                    const to = parseInt(bondMatch[2], 10) - 1;
+                    const type = parseInt(bondMatch[3], 10);
+
+                    if (isNaN(from) || isNaN(to) || isNaN(type)) {
+                        log(`警告：键数据无效: from=${bondMatch[1]}, to=${bondMatch[2]}, type=${bondMatch[3]}`);
+                        continue;
+                    }
+
+                    log(`成功解析键: ${from + 1}-${to + 1} (类型: ${type})`);
+                    bonds.push({ from, to, type });
+                }
+
+                if (atoms.length === 0) {
+                    throw new Error('没有解析到任何有效的原子');
+                }
+
+                log(`解析完成：${atoms.length}个原子，${bonds.length}个键`);
+                return { atoms, bonds };
+            } catch (error) {
+                log(`解析错误: ${error.message}`);
+                throw error;
+            }
+        }
+
+        function parseMol2file(mol2Content) {
+            try {
+                log('开始解析MOL2文件...');
+                const lines = mol2Content.split('\n').map(line => line.trim());
+                
+                // 查找关键部分的起始位置
+                let atomStartIndex = -1;
+                let bondStartIndex = -1;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i] === '@<TRIPOS>ATOM') {
+                        atomStartIndex = i + 1;
+                    } else if (lines[i] === '@<TRIPOS>BOND') {
+                        bondStartIndex = i + 1;
+                    }
+                }
+
+                if (atomStartIndex === -1 || bondStartIndex === -1) {
+                    throw new Error('找不到ATOM或BOND部分');
+                }
+
+                // 解析原子
+                const atoms = [];
+                for (let i = atomStartIndex; i < bondStartIndex - 1; i++) {
+                    const line = lines[i];
+                    if (!line || line.startsWith('@')) break;
+
+                    const parts = line.split(/\s+/).filter(Boolean);
+                    if (parts.length < 6) continue;
+
+                    const x = parseFloat(parts[2]);
+                    const y = parseFloat(parts[3]);
+                    const symbol = parts[1].replace(/\d+$/, '').split('.')[0];  // 移除数字后缀和原子类型
+
+                    if (!isNaN(x) && !isNaN(y)) {
+                        atoms.push({ x, y, symbol });
+                        log(`解析原子: ${symbol} at (${x}, ${y})`);
+                    }
+                }
+
+                // 解析键
+                const bonds = [];
+                for (let i = bondStartIndex; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (!line || line.startsWith('@')) break;
+
+                    const parts = line.split(/\s+/).filter(Boolean);
+                    if (parts.length < 4) continue;
+
+                    const from = parseInt(parts[1]) - 1;
+                    const to = parseInt(parts[2]) - 1;
+                    const type = parts[3] === '2' ? 2 : 1;  // 简化键类型处理
+
+                    if (!isNaN(from) && !isNaN(to)) {
+                        bonds.push({ from, to, type });
+                        log(`解析键: ${from + 1}-${to + 1} (类型: ${type})`);
+                    }
+                }
+
+                log(`MOL2解析完成：${atoms.length}个原子，${bonds.length}个键`);
+                return { atoms, bonds };
+            } catch (error) {
+                log(`MOL2解析错误: ${error.message}`);
+                throw error;
+            }
+        }
+
+        function renderSmiles(smilesString) {
+            try {
+                log('开始解析SMILES格式...');
+                
+                const canvas = document.getElementById('molCanvas');
+                if (!canvas) {
+                    throw new Error('找不到Canvas元素');
+                }
+                
+                // 清除当前内容
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                log(`准备解析SMILES字符串: ${smilesString}`);
+                
+                // 解析SMILES并渲染
+                SmilesDrawer.parse(smilesString, function(tree) {
+                    try {
+                        log('SMILES解析成功，开始渲染...');
+                        smilesDrawer.draw(tree, canvas, 'light', false);
+                        log('SMILES结构渲染完成');
+                    } catch (error) {
+                        log(`SMILES渲染错误: ${error.message}`);
+                        log(`错误堆栈: ${error.stack}`);
+                        showErrorMessage(error);
+                    }
+                }, function(error) {
+                    log(`SMILES解析错误: ${error}`);
+                    showErrorMessage(error);
+                });
+            } catch (error) {
+                log(`SMILES处理错误: ${error.message}`);
+                log(`错误堆栈: ${error.stack}`);
+                showErrorMessage(error);
+            }
+        }
+
+        function showErrorMessage(error) {
+            const canvas = document.getElementById('molCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.font = '14px Arial';
+            ctx.fillStyle = 'black';
+            ctx.textAlign = 'center';
+            ctx.fillText(`错误: ${error.message}`, canvas.width/2, canvas.height/2);
+        }
+
+        function convertMolToSmiles(molfileContent) {
+            try {
+                const molecule = parseMolfile(molfileContent);
+                if (!molecule || !molecule.atoms || !molecule.bonds) {
+                    throw new Error('无效的MOL数据');
+                }
+
+                // 创建原子映射
+                const atomMap = new Map();
+                molecule.atoms.forEach((atom, index) => {
+                    if (atom.symbol !== 'H') { // 忽略氢原子
+                        atomMap.set(index, atomMap.size);
+                    }
+                });
+
+                // 构建邻接列表
+                const adjacencyList = new Map();
+                molecule.bonds.forEach(bond => {
+                    const fromIdx = atomMap.get(bond.from);
+                    const toIdx = atomMap.get(bond.to);
+                    if (fromIdx !== undefined && toIdx !== undefined) {
+                        if (!adjacencyList.has(fromIdx)) {
+                            adjacencyList.set(fromIdx, []);
+                        }
+                        if (!adjacencyList.has(toIdx)) {
+                            adjacencyList.set(toIdx, []);
+                        }
+                        adjacencyList.get(fromIdx).push({ to: toIdx, type: bond.type });
+                        adjacencyList.get(toIdx).push({ to: fromIdx, type: bond.type });
+                    }
+                });
+
+                // 使用 SmilesDrawer 的内置功能直接渲染
+                return true;
+            } catch (error) {
+                log(`MOL到SMILES转换错误: ${error.message}`);
+                return false;
+            }
+        }
+
+        function renderMolecule(molfileContent, format) {
+            try {
+                log('准备加载分子数据...');
+                
+                const canvas = document.getElementById('molCanvas');
+                if (!canvas) {
+                    throw new Error('找不到Canvas元素');
+                }
+                
+                // 清除当前内容
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                let molecule;
+                if (format === 'smi') {
+                    log('检测到SMILES格式，开始2D渲染');
+                    renderSmiles(molfileContent.trim());
+                    return;
+                } else if (format === 'mol2') {
+                    log('检测到MOL2格式，开始解析');
+                    molecule = parseMol2file(molfileContent);
+                } else {
+                    log('检测到MOL/SDF格式，开始解析');
+                    molecule = parseMolfile(molfileContent);
+                }
+                
+                // 渲染分子结构
+                renderBasicMol(molecule, canvas);
+                log('分子结构渲染完成');
+            } catch (error) {
+                log('渲染失败: ' + error.message);
+                console.error('渲染错误:', error);
+                showErrorMessage(error);
+            }
+        }
+
+        function renderBasicMol(molecule, canvas) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 50;
+
+            // 清除画布
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+
+            // 计算边界框
+            let minX = Math.min(...molecule.atoms.map(a => a.x));
+            let maxX = Math.max(...molecule.atoms.map(a => a.x));
+            let minY = Math.min(...molecule.atoms.map(a => a.y));
+            let maxY = Math.max(...molecule.atoms.map(a => a.y));
+
+            // 计算缩放和平移
+            const scale = Math.min(
+                (width - 2 * padding) / (maxX - minX || 1),
+                (height - 2 * padding) / (maxY - minY || 1)
+            ) * 0.8; // 缩小一点以获得更好的视觉效果
+
+            const translateX = (width - (maxX + minX) * scale) / 2;
+            const translateY = (height - (maxY + minY) * scale) / 2;
+
+            // 绘制键
+            molecule.bonds.forEach(bond => {
+                const from = molecule.atoms[bond.from];
+                const to = molecule.atoms[bond.to];
+
+                if (bond.type === 2) {
+                    // 双键
+                    const dx = to.x - from.x;
+                    const dy = to.y - from.y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    const offset = 3; // 增加偏移量使双键更明显
+                    const ux = -dy / len * offset;
+                    const uy = dx / len * offset;
+
+                    // 绘制双键
+                    ctx.beginPath();
+                    ctx.moveTo(from.x * scale + translateX + ux, from.y * scale + translateY + uy);
+                    ctx.lineTo(to.x * scale + translateX + ux, to.y * scale + translateY + uy);
+                    ctx.moveTo(from.x * scale + translateX - ux, from.y * scale + translateY - uy);
+                    ctx.lineTo(to.x * scale + translateX - ux, to.y * scale + translateY - uy);
+                    ctx.strokeStyle = '#444';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                } else {
+                    // 单键
+                    ctx.beginPath();
+                    ctx.moveTo(from.x * scale + translateX, from.y * scale + translateY);
+                    ctx.lineTo(to.x * scale + translateX, to.y * scale + translateY);
+                    ctx.strokeStyle = '#444';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+            });
+
+            // 绘制原子
+            molecule.atoms.forEach(atom => {
+                if (atom.symbol !== 'C' && atom.symbol !== 'H') {
+                    const x = atom.x * scale + translateX;
+                    const y = atom.y * scale + translateY;
+                    
+                    // 为原子标签添加白色背景
+                    ctx.font = 'bold 16px Arial';
+                    const metrics = ctx.measureText(atom.symbol);
+                    const padding = 4;
+                    
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(
+                        x - metrics.width/2 - padding,
+                        y - 8 - padding,
+                        metrics.width + padding * 2,
+                        16 + padding * 2
+                    );
+                    
+                    // 根据原子类型选择颜色
+                    let color;
+                    switch(atom.symbol) {
+                        case 'O': color = '#e74c3c'; break;
+                        case 'N': color = '#3498db'; break;
+                        case 'P': color = '#d35400'; break;
+                        case 'S': color = '#f1c40f'; break;
+                        default: color = '#444';
+                    }
+                    
+                    ctx.fillStyle = color;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(atom.symbol, x, y);
+                }
+            });
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('load', () => {
+            log('页面加载完成');
+        });
+
+        // 处理VSCode消息
+        window.addEventListener('message', event => {
+            const message = event.data;
+            log('收到消息: ' + JSON.stringify(message));
+
+            if (message.type === 'updateContent') {
+                renderMolecule(message.content, message.format);
+            }
+        });
+    </script>
+</body>
+</html>

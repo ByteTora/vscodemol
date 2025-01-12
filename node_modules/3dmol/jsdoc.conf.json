@@ -1,0 +1,72 @@
+{
+    "tags": {
+        "allowUnknownTags": true
+    },
+    "plugins": [
+        "plugins/markdown",
+        "../../node_modules/better-docs/typescript",
+        "../../node_modules/better-docs/category"
+    ],
+    "recurseDepth": 10,
+    "source": {
+        "includePattern": "\\.(jsx|js|ts|tsx)$"
+    },
+    "templates": {
+        "search": true,
+        "cleverLinks": true,
+        "monospaceLinks": false,
+        "footer": "",
+        "copyright":"3Dmol.js © 2019-2024",
+        "linenums"              : true,
+        "collapseSymbols"       : false,
+        "inverseNav"            : true,
+        "highlightTutorialCode" : true
+    },
+    "markdown"  : {
+        "hardwrap": true,
+        "idInHeadings": true
+    },
+    "opts":{
+        "encoding": "utf8",
+        "destination": "doc/",
+        "recurse": true,
+        "verbose": true,
+        "template": "./node_modules/clean-jsdoc-theme",
+        "copyright": "3Dmol.js © 2019-2023",
+        "theme_opts": {
+            "default_theme": "light",
+            "includeFilesListInHomepage": true,
+            "homepageTitle": "3Dmol.js",
+            "displayModuleHeader": true,
+            "footer":"3Dmol.js © 2019-2024 | <a href='https://pitt.edu/' target='_blank'>University of Pittsburgh</a> | <a href='https://github.com/3dmol/3Dmol.js/blob/master/LICENSE' target='_blank'>License</a>",
+            "title": "3Dmol.js",
+            "create_style": "article ul li { list-style: disc}",
+            "menu": [
+                {
+                    "title": " Documentation",
+                    "link": "https://3dmol.org/doc/index.html"
+                },
+                {
+                    "title": "Tutorials",
+                    "link": "tutorial-home.html"
+                },
+                {
+                  "title": "GitHub",
+                  "link": "https://github.com/3dmol/3Dmol.js",
+                  "target": "_blank"
+                }
+            ],
+            "meta": [
+                {
+                    "name": "Author",
+                    "content": "David Koes & 3Dmoljs Contributors"
+                },
+                {
+                    "name": "Description",
+                    "content": "A modern, object-oriented JavaScript library for visualizing molecular data"
+                }
+            ]
+        },
+        "tutorials": "tutorials/"
+    }
+}
