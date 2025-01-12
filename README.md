@@ -5,6 +5,7 @@
 ## English
 
 MolViewer is a VSCode extension that allows you to view molecular structures directly in VSCode. It supports multiple file formats including MOL, SDF, SMILES, and MOL2.
+![Demo](media/use.gif)
 
 ### Features
 
